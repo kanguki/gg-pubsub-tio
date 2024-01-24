@@ -32,3 +32,20 @@ terraform destroy -var project_name=$proj -var unique_key=$unique_key --auto-app
 demo running
 
 ![1705926571049](image/readme/1705926571049.png)
+
+---
+
+using google pubsub emulator
+
+```
+proj=test
+docker run -d -p 8085:8085 -e PUBSUB_PROJECT_ID=$proj adhawk/google-pubsub-emulator
+unset GOOGLE_APPLICATION_CREDENTIALS
+export PUBSUB_EMULATOR_HOST=localhost:8085
+
+cd app
+unique_key=test
+go run . setup -p=$proj -s=$unique_key -t=$unique_key
+go run . publish -p=$proj -s=$unique_key -t=$unique_key --batch=5 --times=4
+
+```

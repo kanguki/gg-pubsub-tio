@@ -28,6 +28,7 @@ func newRootCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newPublishCmd())
 	cmd.AddCommand(newSubscribeCmd())
+	cmd.AddCommand(newSetUpCmd())
 	return cmd
 }
 
@@ -60,12 +61,10 @@ func newSubscribeCmd() *cobra.Command {
 					}
 					clients = append(clients, client)
 					sub := client.Subscription(subscription)
-					for err == nil {
-						err = sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
-							receivedMsgs <- fmt.Sprintf("+++++ %d received\n%s\n+++++\n", listenerID, m.Data)
-							m.Ack()
-						})
-					}
+					err = sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
+						receivedMsgs <- fmt.Sprintf("+++++ %d received\n%s\n+++++\n", listenerID, m.Data)
+						m.Ack()
+					})
 					errorsChan <- fmt.Errorf("sub.Receive: %w", err)
 				}(i)
 			}
@@ -114,6 +113,7 @@ func newPublishCmd() *cobra.Command {
 		Short: "publish messages to google pubsub",
 		Long:  "publish messages to google pubsub",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			log.Println("running")
 			ctx := context.Background()
 			client, err := pubsub.NewClient(ctx, googleCloudProject)
 			if err != nil {
@@ -160,6 +160,48 @@ func newPublishCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&subscription, "subscription", "s", "", "subscription")
 	cmd.Flags().IntVar(&batch, "batch", 10, "number of concurrent messages to send")
 	cmd.Flags().IntVar(&times, "times", 5, "number of batches to send")
+	cmd.MarkFlagRequired("gg-project")
+	cmd.MarkFlagRequired("topic")
+	cmd.MarkFlagRequired("subscription")
+	return cmd
+}
+
+func newSetUpCmd() *cobra.Command {
+	var (
+		googleCloudProject string
+		topic              string
+		subscriptions      []string
+	)
+	cmd := &cobra.Command{
+		Use:   "setup",
+		Short: "create topic and subscriptions",
+		Long:  "create topic and subscriptions",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			client, err := pubsub.NewClient(ctx, googleCloudProject)
+			if err != nil {
+				return fmt.Errorf("pubsub.NewClient: %w", err)
+			}
+			tp, tErr := client.CreateTopic(ctx, topic)
+			if tErr != nil {
+				return fmt.Errorf("client.CreateTopic: %w", tErr)
+			}
+			for _, s := range subscriptions {
+				_, sErr := client.CreateSubscription(ctx, s, pubsub.SubscriptionConfig{
+					Topic:       tp,
+					AckDeadline: 10 * time.Second,
+				})
+				if sErr != nil {
+					return fmt.Errorf("client.CreateSubscription: %w", sErr)
+				}
+			}
+			log.Printf("done creating topic %s , subscriptions %v in project %s", topic, subscriptions, googleCloudProject)
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&googleCloudProject, "gg-project", "p", "", "google cloud project")
+	cmd.Flags().StringVarP(&topic, "topic", "t", "", "pubsub topic")
+	cmd.Flags().StringArrayVarP(&subscriptions, "subscription", "s", nil, "subscriptions to create")
 	cmd.MarkFlagRequired("gg-project")
 	cmd.MarkFlagRequired("topic")
 	cmd.MarkFlagRequired("subscription")
